@@ -199,5 +199,92 @@ class HelpersTest(unittest.TestCase):
         self.assertFalse(looks_like_store_stub("Python 3.12.1"))
 
 
+class IsWithinPathTest(unittest.TestCase):
+    """Host-independent containment checks for every path flavour.
+
+    Every assertion in this class must hold on Windows, Linux and macOS
+    alike: Windows-style operands are compared with ntpath semantics and
+    POSIX-style operands with posixpath semantics, regardless of the host
+    running the tests.
+    """
+
+    def test_windows_containment(self):
+        self.assertTrue(is_within_path(r"C:\Py\Lib\site-packages\pip", r"C:\Py"))
+        self.assertTrue(is_within_path(r"C:\Py\Lib\site-packages\pip", "C:\\Py\\"))
+        self.assertTrue(is_within_path(r"C:\Py\Lib\site-packages\pip", r"C:\Py\..\Py"))
+        self.assertTrue(is_within_path(r"C:/Py/Lib/site-packages/pip", r"C:\Py"))
+        self.assertTrue(is_within_path(r"C:\Py\lib\site-packages\pip", r"C:\PY"))
+
+    def test_windows_equality(self):
+        self.assertTrue(is_within_path(r"C:\Py", r"C:\Py"))
+        self.assertTrue(is_within_path("C:\\Py\\", r"C:\Py"))
+        self.assertTrue(is_within_path(r"c:\pY", r"C:\Py"))
+        self.assertTrue(is_within_path(r"C:/Py", r"C:\Py"))
+
+    def test_windows_prefix_boundary(self):
+        self.assertFalse(is_within_path(r"C:\Python312", r"C:\Python3"))
+        self.assertFalse(is_within_path(r"C:\Other", r"C:\Py"))
+        self.assertFalse(is_within_path(r"C:\Py2\Lib", r"C:\Py"))
+
+    def test_windows_different_drives(self):
+        self.assertFalse(is_within_path(r"D:\Py\Lib\site-packages\pip", r"C:\Py"))
+        self.assertFalse(is_within_path(r"d:\py", r"C:\Py"))
+
+    def test_windows_root(self):
+        self.assertTrue(is_within_path(r"C:\Python\python.exe", "C:\\"))
+        self.assertTrue(is_within_path(r"C:\Python\python.exe", "C:"))
+
+    def test_unc_paths(self):
+        self.assertTrue(is_within_path(r"\\server\share\py\Lib", r"\\server\share\py"))
+        self.assertTrue(is_within_path(r"//server/share/py/lib", r"\\server\share\py"))
+        self.assertTrue(is_within_path(r"\\SERVER\share\py\Lib", r"\\server\share\py"))
+        self.assertFalse(is_within_path(r"\\server\share\py\Lib", r"\\server\share\other"))
+        self.assertFalse(is_within_path(r"\\server2\share\py", r"\\server\share"))
+        self.assertTrue(is_within_path(r"\\server\share\x", r"\\server\share"))
+
+    def test_unc_share_boundary(self):
+        """A UNC share prefix must not spill into a longer share name."""
+        self.assertFalse(is_within_path(r"\\server\share2\folder", r"\\server\share"))
+        self.assertTrue(is_within_path(r"\\server\share\folder", r"\\server\share"))
+
+    def test_posix_containment(self):
+        self.assertTrue(is_within_path("/home/u/venv/lib/python3.12/site-packages/pip", "/home/u/venv"))
+        self.assertTrue(is_within_path("/home/u/venv/lib/../lib/python3.12", "/home/u/venv"))
+        self.assertTrue(is_within_path("/home/u/venv/lib/python3.12", "/home/u/venv/"))
+        self.assertTrue(is_within_path("/home/u/venv//lib/x", "/home/u/venv"))
+
+    def test_posix_equality_case_sensitive(self):
+        self.assertTrue(is_within_path("/home/u/venv", "/home/u/venv"))
+        self.assertTrue(is_within_path("/home/u/venv/", "/home/u/venv"))
+        self.assertFalse(is_within_path("/home/U/venv/lib", "/home/u/venv"))
+
+    def test_posix_outside_parent(self):
+        self.assertFalse(is_within_path("/home/other/lib/python3.12/site-packages/pip", "/home/u/venv"))
+        self.assertFalse(is_within_path("/opt/py/lib", "/home/u"))
+        self.assertFalse(is_within_path("/home/u/venv-backup/lib", "/home/u/venv"))
+        self.assertFalse(is_within_path("/", "/home/u"))
+
+    def test_posix_root(self):
+        self.assertTrue(is_within_path("/home", "/"))
+        self.assertTrue(is_within_path("/usr/bin/python3", "/"))
+
+    def test_mixed_flavors(self):
+        self.assertFalse(is_within_path(r"C:\Py\Lib\site-packages\pip", "/home/u/venv"))
+        self.assertFalse(is_within_path("/home/u/venv/lib/python3.12", r"C:\Py"))
+        self.assertFalse(is_within_path(r"\\server\share\py", "/home/u/venv"))
+
+    def test_relative_paths(self):
+        self.assertFalse(is_within_path(r"Lib\site-packages\pip", r"C:\Py"))
+        self.assertFalse(is_within_path("lib/python3.12/site-packages", "/home/u/venv"))
+        self.assertTrue(is_within_path("lib/x", "lib"))
+        self.assertTrue(is_within_path("lib/x", "lib/"))
+        self.assertTrue(is_within_path("lib/x", "lib/x"))
+
+    def test_empty_inputs(self):
+        self.assertFalse(is_within_path("", r"C:\Py"))
+        self.assertFalse(is_within_path(r"C:\Py", ""))
+        self.assertFalse(is_within_path("", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

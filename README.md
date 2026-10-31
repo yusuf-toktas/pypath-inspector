@@ -276,7 +276,7 @@ python -m pip install -e .
 python -m unittest discover -s tests -t . -v
 ```
 
-The test suite (121 tests) runs against temporary directories and a fake
+The test suite (139 tests) runs against temporary directories and a fake
 subprocess runner, so it never depends on — or modifies — the developer
 machine.
 

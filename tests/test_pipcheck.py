@@ -127,6 +127,101 @@ class AnalyzePipTest(unittest.TestCase):
         self.assertFalse(analysis.mismatch)
 
 
+class PosixPipAnalysisTest(unittest.TestCase):
+    """Pip mismatch detection with POSIX-style paths.
+
+    These scenarios must behave identically on every host: the install
+    path and the interpreter prefix both use POSIX syntax, so the
+    containment check must use posixpath semantics even when the tests
+    run on Windows.
+    """
+
+    PY = "/home/u/venv/bin/python"
+
+    def _probe(self, prefix: str):
+        from pypath_inspector.models import InterpreterProbe
+
+        return InterpreterProbe(
+            executable=self.PY,
+            ok=True,
+            version="3.12.1",
+            prefix=prefix,
+            base_prefix=prefix,
+        )
+
+    def test_posix_consistent_pip(self):
+        runner = FakeRunner()
+        line = "pip 24.0 from /home/u/venv/lib/python3.12/site-packages/pip (python 3.12)"
+        runner.add(["/home/u/venv/bin/pip", "--version"], ok(line))
+        runner.add([self.PY, "-m", "pip", "--version"], ok(line))
+        analysis = analyze_pip(
+            runner,
+            resolution("pip", "/home/u/venv/bin/pip"),
+            resolution("pip3", None),
+            self.PY,
+            self._probe("/home/u/venv"),
+        )
+        self.assertFalse(analysis.mismatch)
+        self.assertFalse(analysis.targets_other_python)
+
+    def test_posix_pip_outside_prefix_is_mismatch(self):
+        runner = FakeRunner()
+        runner.add(
+            ["/home/u/other/bin/pip", "--version"],
+            ok("pip 24.0 from /home/u/other/lib/python3.12/site-packages/pip (python 3.12)"),
+        )
+        runner.add([self.PY, "-m", "pip", "--version"], ok(
+            "pip 24.0 from /home/u/venv/lib/python3.12/site-packages/pip (python 3.12)"
+        ))
+        analysis = analyze_pip(
+            runner,
+            resolution("pip", "/home/u/other/bin/pip"),
+            resolution("pip3", None),
+            self.PY,
+            self._probe("/home/u/venv"),
+        )
+        self.assertTrue(analysis.mismatch)
+        self.assertTrue(analysis.targets_other_python)
+
+    def test_posix_prefix_boundary_respected(self):
+        runner = FakeRunner()
+        runner.add(
+            ["/home/u/venv2/bin/pip", "--version"],
+            ok("pip 24.0 from /home/u/venv2/lib/python3.12/site-packages/pip (python 3.12)"),
+        )
+        runner.add([self.PY, "-m", "pip", "--version"], ok(
+            "pip 24.0 from /home/u/venv/lib/python3.12/site-packages/pip (python 3.12)"
+        ))
+        analysis = analyze_pip(
+            runner,
+            resolution("pip", "/home/u/venv2/bin/pip"),
+            resolution("pip3", None),
+            self.PY,
+            self._probe("/home/u/venv"),
+        )
+        self.assertTrue(analysis.mismatch)
+        self.assertTrue(analysis.targets_other_python)
+
+    def test_mixed_flavor_paths_report_mismatch(self):
+        runner = FakeRunner()
+        runner.add(
+            ["/home/u/venv/bin/pip", "--version"],
+            ok(r"pip 24.0 from C:\Py\Lib\site-packages\pip (python 3.12)"),
+        )
+        runner.add([self.PY, "-m", "pip", "--version"], ok(
+            "pip 24.0 from /home/u/venv/lib/python3.12/site-packages/pip (python 3.12)"
+        ))
+        analysis = analyze_pip(
+            runner,
+            resolution("pip", "/home/u/venv/bin/pip"),
+            resolution("pip3", None),
+            self.PY,
+            self._probe("/home/u/venv"),
+        )
+        self.assertTrue(analysis.mismatch)
+        self.assertTrue(analysis.targets_other_python)
+
+
 class ProbePipDetailsTest(unittest.TestCase):
     def test_command_string_and_origin(self):
         runner = FakeRunner()

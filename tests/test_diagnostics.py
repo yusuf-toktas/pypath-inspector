@@ -57,6 +57,16 @@ class DiagnosticsScenario(unittest.TestCase):
     def add_pip(self, exe: Path, line: str):
         self.runner.add([str(exe), "-m", "pip", "--version"], ok(line))
 
+    def site_packages(self, base) -> str:
+        """Host-flavoured site-packages path for fake pip output.
+
+        Built with ``os.path.join`` so the pip install path matches the
+        flavour of the temporary directories the scenario runs on; a
+        hardcoded Windows separator would break containment checks on
+        POSIX hosts.
+        """
+        return os.path.join(str(base), "Lib", "site-packages", "pip")
+
     def set_path(self, *directories):
         self.env["PATH"] = os.pathsep.join(str(item) for item in directories)
 
@@ -79,9 +89,9 @@ class CleanEnvironmentTest(DiagnosticsScenario):
         scripts = self.dir("install")  # reuse: pip lives next to python here
         pip = make_exec(scripts, "pip.exe")
         self.runner.add([str(pip), "--version"], ok(
-            f"pip 24.0 from {install}\\Lib\\site-packages\\pip (python 3.12)"
+            f"pip 24.0 from {self.site_packages(install)} (python 3.12)"
         ))
-        self.add_pip(python, f"pip 24.0 from {install}\\Lib\\site-packages\\pip (python 3.12)")
+        self.add_pip(python, f"pip 24.0 from {self.site_packages(install)} (python 3.12)")
         self.set_path(install)
 
         report = run_diagnostics(env=self.env, runner=self.runner, pathext=PATH_EXT)
@@ -160,9 +170,9 @@ class PipMismatchTest(DiagnosticsScenario):
         other = self.dir("other")
         pip = make_exec(other, "pip.exe")
         self.runner.add([str(pip), "--version"], ok(
-            f"pip 23.0 from {other}\\Lib\\site-packages\\pip (python 3.11)"
+            f"pip 23.0 from {self.site_packages(other)} (python 3.11)"
         ))
-        self.add_pip(python, f"pip 24.0 from {install}\\Lib\\site-packages\\pip (python 3.12)")
+        self.add_pip(python, f"pip 24.0 from {self.site_packages(install)} (python 3.12)")
         self.set_path(install, other)
 
         report = run_diagnostics(env=self.env, runner=self.runner, pathext=PATH_EXT)
@@ -183,7 +193,7 @@ class PipMismatchTest(DiagnosticsScenario):
     def test_pip_not_on_path(self):
         install = self.dir("install")
         python = self.add_python(install)
-        self.add_pip(python, f"pip 24.0 from {install}\\Lib\\site-packages\\pip (python 3.12)")
+        self.add_pip(python, f"pip 24.0 from {self.site_packages(install)} (python 3.12)")
         self.set_path(install)
         report = run_diagnostics(env=self.env, runner=self.runner, pathext=PATH_EXT)
         self.assertIn("PIP_NOT_ON_PATH", self.codes(report))
@@ -205,7 +215,7 @@ class VenvScenarioTest(DiagnosticsScenario):
             base_prefix=str(base),
         )))
         pip = make_exec(scripts, "pip.exe")
-        pip_line = f"pip 24.0 from {venv}\\Lib\\site-packages\\pip (python 3.12)"
+        pip_line = f"pip 24.0 from {self.site_packages(venv)} (python 3.12)"
         self.runner.add([str(pip), "--version"], ok(pip_line))
         self.add_pip(venv_python, pip_line)
         (venv / "pyvenv.cfg").write_text(f"home = {base}\n", encoding="ascii")
@@ -223,7 +233,7 @@ class VenvScenarioTest(DiagnosticsScenario):
         base = self.dir("base")
         python = self.add_python(base)
         pip = make_exec(base, "pip.exe")
-        pip_line = f"pip 24.0 from {base}\\Lib\\site-packages\\pip (python 3.12)"
+        pip_line = f"pip 24.0 from {self.site_packages(base)} (python 3.12)"
         self.runner.add([str(pip), "--version"], ok(pip_line))
         self.add_pip(python, pip_line)
         self.set_path(base)
@@ -236,7 +246,7 @@ class VenvScenarioTest(DiagnosticsScenario):
         base = self.dir("base")
         python = self.add_python(base)
         pip = make_exec(base, "pip.exe")
-        pip_line = f"pip 24.0 from {base}\\Lib\\site-packages\\pip (python 3.12)"
+        pip_line = f"pip 24.0 from {self.site_packages(base)} (python 3.12)"
         self.runner.add([str(pip), "--version"], ok(pip_line))
         self.add_pip(python, pip_line)
         self.set_path(base)

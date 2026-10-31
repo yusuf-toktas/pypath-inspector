@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import locale
+import ntpath
 import os
+import posixpath
 import re
 import subprocess
 from dataclasses import dataclass
@@ -257,11 +259,82 @@ def major_minor(version: str | None) -> str | None:
 
 
 def is_within_path(child: str, parent: str) -> bool:
-    """Whether *child* is equal to or located underneath *parent*."""
-    child_n = os.path.normcase(os.path.normpath(os.path.abspath(child)))
-    parent_n = os.path.normcase(os.path.normpath(os.path.abspath(parent)))
-    if not child_n or not parent_n:
+    """Whether *child* is equal to or located underneath *parent*.
+
+    The comparison is path-flavour aware and therefore host independent:
+
+    * Windows-style paths (drive letters such as ``C:\\x`` and UNC paths
+      such as ``\\\\server\\share\\x``) are normalised with :mod:`ntpath`,
+      including case folding and ``/``-to-``\\`` conversion.
+    * POSIX-style paths (leading ``/``) are normalised with
+      :mod:`posixpath`, case sensitively.
+    * Paths of different flavours are never contained in one another.
+    * Relative paths are resolved with the flavour of the other operand;
+      two relative paths fall back to host ``os.path`` semantics, matching
+      the historical behaviour.
+
+    This matters because pip's reported install path and the interpreter's
+    prefix may use Windows syntax while pypath itself runs on POSIX (or
+    vice versa); normalising a foreign path with the host ``os.path``
+    would silently anchor it to the current working directory and produce
+    false containment results.
+    """
+    if not child or not parent:
         return False
+
+    child_flavor = _path_flavor(child)
+    parent_flavor = _path_flavor(parent)
+
+    if child_flavor == "relative" and parent_flavor != "relative":
+        child_flavor = parent_flavor
+    elif parent_flavor == "relative" and child_flavor != "relative":
+        parent_flavor = child_flavor
+
+    if child_flavor != parent_flavor:
+        return False
+
+    if child_flavor == "relative":
+        child_n = os.path.normcase(os.path.normpath(os.path.abspath(child)))
+        parent_n = os.path.normcase(os.path.normpath(os.path.abspath(parent)))
+    else:
+        child_n = _normalize_flavored(child, child_flavor)
+        parent_n = _normalize_flavored(parent, parent_flavor)
+
     if child_n == parent_n:
         return True
-    return child_n.startswith(parent_n.rstrip("\\/") + os.path.normcase(os.sep))
+    if child_flavor == "windows":
+        sep = ntpath.sep
+    elif child_flavor == "posix":
+        sep = posixpath.sep
+    else:
+        sep = os.sep
+    return child_n.startswith(parent_n.rstrip("\\/") + sep)
+
+
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _path_flavor(path: str) -> str:
+    """Classify *path* as ``windows``, ``posix`` or ``relative``.
+
+    ``windows`` covers drive-letter paths (``C:\\x``, ``C:x``) and UNC
+    paths (``\\\\server\\share``, ``//server/share``); ``posix`` covers
+    paths starting with a single slash; everything else is ``relative``.
+    """
+    if path.startswith(("\\\\", "//")) or _WINDOWS_DRIVE_RE.match(path):
+        return "windows"
+    if path.startswith("/"):
+        return "posix"
+    return "relative"
+
+
+def _normalize_flavored(path: str, flavor: str) -> str:
+    """Normalise an absolute foreign-platform path without host ``os.path``.
+
+    ``abspath`` is deliberately not used: for already-absolute paths it
+    would only duplicate ``normpath``, and for anything else it would
+    consult the *host* working directory, which is meaningless for a
+    foreign path flavour.
+    """
+    module = ntpath if flavor == "windows" else posixpath
+    return module.normcase(module.normpath(path))
